@@ -1,15 +1,25 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
-    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
 html,
 body {
-  @apply bg-white dark:bg-gray-950;
+  @apply bg-gray-950 text-gray-100;
+  color-scheme: dark;
+}
 
-  @media (prefers-color-scheme: dark) {
-    color-scheme: dark;
-  }
+/* Utility for the dashed "under construction" placeholders we use in Phase 1
+   stub pages. Centralized so we can kill it in one place later. */
+.phase-stub {
+  @apply rounded-md border border-dashed border-white/15 bg-white/[0.03] p-4 text-sm text-gray-400;
+}
+
+/* Global top-of-page progress bar animation (driven by useNavigation). */
+@keyframes loading-bar {
+  0%   { transform: scaleX(0);   transform-origin: left;  }
+  50%  { transform: scaleX(0.6); transform-origin: left;  }
+  100% { transform: scaleX(1);   transform-origin: right; }
 }
