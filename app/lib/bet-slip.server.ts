@@ -162,6 +162,7 @@ export async function readRawCookie(request: Request) {
 
 export type PlacedBet = {
   id: string;
+  userId: string; // Phase 5: tie each ticket to its owner
   placedAt: string;
   stake: number;
   odds: number; // locked at placement
@@ -181,8 +182,9 @@ export function placeBet(input: Omit<PlacedBet, "id" | "placedAt">): PlacedBet {
   return ticket;
 }
 
-export function listPlacedBets(): PlacedBet[] {
-  return [...PLACED_BETS.values()].sort(
-    (a, b) => +new Date(b.placedAt) - +new Date(a.placedAt)
-  );
+/** Return all bets for a specific user, newest first. */
+export function listPlacedBetsForUser(userId: string): PlacedBet[] {
+  return [...PLACED_BETS.values()]
+    .filter((b) => b.userId === userId)
+    .sort((a, b) => +new Date(b.placedAt) - +new Date(a.placedAt));
 }

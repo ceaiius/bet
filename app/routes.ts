@@ -82,6 +82,11 @@ export default [
     ]),
 
     route("events/:eventId", "routes/events.$eventId.tsx"),
+
+    // Phase 5: protected area. `/account` lives INSIDE the shell so it
+    // keeps the header/sidebar/bet-slip chrome. The `requireUser` check
+    // happens in the loader itself — see routes/account.tsx.
+    route("account", "routes/account.tsx"),
   ]),
 
   // -------------------------------------------------------------------------
@@ -101,6 +106,10 @@ export default [
   // Every <fetcher.Form action="/bet-slip" method="post"> posts here.
   // -------------------------------------------------------------------------
   route("bet-slip", "routes/bet-slip.tsx"),
+
+  // Phase 5: logout is an action-only resource route. No UI, posted to
+  // from the Header's <Form action="/logout" method="post">.
+  route("logout", "routes/logout.tsx"),
 
   // -------------------------------------------------------------------------
   // Splat route = catch-all 404. Matches any path not matched above.

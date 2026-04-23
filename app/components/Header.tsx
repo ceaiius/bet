@@ -1,21 +1,23 @@
-import { Link, NavLink } from "react-router";
+import { Form, Link, NavLink } from "react-router";
+import type { PublicUser } from "~/lib/users.server";
 
 /**
  * ---------------------------------------------------------------------------
  * <Header />
  * ---------------------------------------------------------------------------
- * Phase 3 additions:
- *   - A bet slip count badge. We receive it as a prop from the shell because
- *     the count is just `betSlip.items.length` — threading it down is less
- *     coupling than having the header reach into route data itself.
+ * Phase 3: bet slip count badge.
+ * Phase 5: logged-in user avatar + logout <Form>. Uses <Form method="post">
+ *          to /logout rather than a <Link> — destructive action, see
+ *          routes/logout.tsx for the reasoning.
  * ---------------------------------------------------------------------------
  */
 
 type Props = {
   betSlipCount?: number;
+  user?: PublicUser | null;
 };
 
-export function Header({ betSlipCount = 0 }: Props) {
+export function Header({ betSlipCount = 0, user }: Props) {
   return (
     <header className="sticky top-0 z-20 h-14 border-b border-white/10 bg-gray-950/80 backdrop-blur">
       <div className="flex h-full items-center gap-6 px-4">
@@ -79,20 +81,59 @@ export function Header({ betSlipCount = 0 }: Props) {
               {betSlipCount}
             </span>
           )}
-          <Link
-            to="/login"
-            className="rounded-md px-3 py-1.5 text-gray-300 hover:text-white"
-          >
-            Log in
-          </Link>
-          <Link
-            to="/register"
-            className="rounded-md bg-emerald-500 px-3 py-1.5 font-medium text-gray-950 hover:bg-emerald-400"
-          >
-            Sign up
-          </Link>
+
+          {user ? (
+            <UserMenu user={user} />
+          ) : (
+            <>
+              <Link
+                to="/login"
+                className="rounded-md px-3 py-1.5 text-gray-300 hover:text-white"
+              >
+                Log in
+              </Link>
+              <Link
+                to="/register"
+                className="rounded-md bg-emerald-500 px-3 py-1.5 font-medium text-gray-950 hover:bg-emerald-400"
+              >
+                Sign up
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </header>
+  );
+}
+
+function UserMenu({ user }: { user: PublicUser }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Link
+        to="/account"
+        prefetch="intent"
+        className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 py-1.5 hover:bg-white/10"
+      >
+        <span
+          aria-hidden
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-gray-950"
+        >
+          {user.displayName.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="text-gray-200">{user.displayName}</span>
+        <span className="ml-1 font-mono text-xs text-emerald-300">
+          ${user.balance.toFixed(0)}
+        </span>
+      </Link>
+      <Form action="/logout" method="post">
+        <button
+          type="submit"
+          className="rounded-md px-2 py-1.5 text-gray-400 hover:text-white"
+          title="Log out"
+        >
+          ↩
+        </button>
+      </Form>
+    </div>
   );
 }

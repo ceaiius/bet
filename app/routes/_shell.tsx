@@ -1,5 +1,6 @@
 import {
   Outlet,
+  data,
   type ShouldRevalidateFunctionArgs,
 } from "react-router";
 import type { Route } from "./+types/_shell";
@@ -7,47 +8,59 @@ import type { Route } from "./+types/_shell";
 import { Header } from "~/components/Header";
 import { Sidebar } from "~/components/Sidebar";
 import { BetSlipPanel } from "~/components/BetSlipPanel";
+import { FlashToast } from "~/components/FlashToast";
 import { getAllSports } from "~/data/sports";
 import { getBetSlip } from "~/lib/bet-slip.server";
+import { consumeFlash, getUser } from "~/lib/auth.server";
 
 /**
  * ===========================================================================
- * _shell.tsx — pathless layout. Loader now returns sports + bet slip.
+ * _shell.tsx — pathless layout. Loader aggregates shell-wide data.
  * ===========================================================================
- * Why put the bet slip on the SHELL's loader?
- *   - Every page lives inside the shell → every page can read the slip for
- *     free via `useRouteLoaderData("routes/_shell")` (no extra fetch).
- *   - After any /bet-slip action, RR auto-revalidates this loader. One
- *     source of truth, zero manual cache invalidation on the client.
  *
- * Parallel fetch via `Promise.all`: the sports catalog and the slip have no
- * dependency on each other, so we fan out both queries at once.
+ * The shell loader is now the single source of:
+ *   - The sports catalog (for the Sidebar)
+ *   - The current bet slip (for BetSlipPanel + Header badge)
+ *   - The logged-in user  (Phase 5 — for Header state)
+ *   - A consumed flash message (Phase 5 — shown as a toast after login etc.)
+ *
+ * Notice we run the four data reads in PARALLEL with `Promise.all`. None
+ * of them depend on each other, so there's no reason to waterfall.
+ *
+ * Because `consumeFlash` REMOVES the message from the session, we must
+ * attach its `Set-Cookie` header to this loader's response. That's why we
+ * use `data(...)` here rather than returning a plain object.
  * ===========================================================================
  */
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const [sports, betSlip] = await Promise.all([
+  const [sports, betSlip, user, flash] = await Promise.all([
     getAllSports(),
     getBetSlip(request),
+    getUser(request),
+    consumeFlash(request),
   ]);
-  return { sports, betSlip };
+
+  const payload = { sports, betSlip, user, flash: flash.message };
+
+  // Attach Set-Cookie ONLY if we actually consumed a flash. Otherwise the
+  // Vary/cache story is cleaner (no header = cacheable where possible).
+  if (flash.setCookieHeader) {
+    return data(payload, {
+      headers: { "Set-Cookie": flash.setCookieHeader },
+    });
+  }
+  return data(payload);
 }
 
 /**
- * Phase 4 optimization: don't re-fetch the sports catalog + bet slip when
- * a child route (like /live) fires `useRevalidator().revalidate()` purely
- * for polling.
+ * Phase 4 optimization: skip re-fetching the whole shell when a child
+ * route triggers `useRevalidator()` purely for polling.
  *
- * The rule we encode:
- *   - Navigation? (pathname changed) → revalidate. Active sport might change.
- *   - Form submission? (any formMethod) → revalidate. A /bet-slip POST needs
- *     the slip count in the header to update.
- *   - Pure revalidator tick? (same pathname, no form) → SKIP. Nothing a timer
- *     does should force the whole catalog to reload.
- *
- * This is the quintessential `shouldRevalidate` decision: trade freshness
- * for bandwidth. In real apps, audit every shell-level loader and ask
- * "does this need to re-run after every action?" The answer is usually no.
+ * Rule:
+ *   - Pathname changed         → revalidate (sport/league highlight updates)
+ *   - Any form method          → revalidate (action may have affected slip/user)
+ *   - Pure poll (same path)    → skip
  */
 export function shouldRevalidate({
   currentUrl,
@@ -56,16 +69,16 @@ export function shouldRevalidate({
   defaultShouldRevalidate,
 }: ShouldRevalidateFunctionArgs) {
   if (currentUrl.pathname !== nextUrl.pathname) return defaultShouldRevalidate;
-  if (formMethod) return defaultShouldRevalidate; // action happened → refresh slip
-  return false; // pure revalidator poll, skip
+  if (formMethod) return defaultShouldRevalidate;
+  return false;
 }
 
 export default function Shell({ loaderData }: Route.ComponentProps) {
-  const { sports, betSlip } = loaderData;
+  const { sports, betSlip, user, flash } = loaderData;
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      <Header betSlipCount={betSlip.items.length} />
+      <Header betSlipCount={betSlip.items.length} user={user} />
       <div className="flex">
         <Sidebar sports={sports} />
         <main className="min-h-[calc(100vh-3.5rem)] flex-1 overflow-x-hidden">
@@ -73,6 +86,8 @@ export default function Shell({ loaderData }: Route.ComponentProps) {
         </main>
         <BetSlipPanel slip={betSlip} />
       </div>
+      {/* Flash toast mounts when a flash message arrives; auto-dismisses. */}
+      {flash && <FlashToast key={flash} message={flash} />}
     </div>
   );
 }

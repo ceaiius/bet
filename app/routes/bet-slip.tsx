@@ -1,6 +1,7 @@
-import { data } from "react-router";
+import { data, redirect } from "react-router";
 import type { Route } from "./+types/bet-slip";
 
+import { getUserId } from "~/lib/auth.server";
 import {
   addToRefs,
   commitBetSlipRefs,
@@ -117,6 +118,21 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     case "place": {
+      // Phase 5: auth-gated mutation. If anonymous, redirect through the
+      // login flow and come back. We preserve intent by sending them to
+      // `/` (the referring page is usually fine); in a production app
+      // you'd persist the slip ID and re-offer to place it after login.
+      const userId = await getUserId(request);
+      if (!userId) {
+        const url = new URL(request.url);
+        const redirectTo = request.headers.get("Referer") ?? "/";
+        throw redirect(
+          `/login?redirectTo=${encodeURIComponent(
+            new URL(redirectTo, url).pathname
+          )}`
+        );
+      }
+
       // Re-fetch fully enriched slip so we lock in CURRENT prices.
       const slip = await getBetSlip(request);
       if (slip.items.length === 0) {
@@ -131,6 +147,7 @@ export async function action({ request }: Route.ActionArgs) {
       const odds = calculateParlayOdds(slip.items);
       const potentialReturn = calculatePotentialReturn(slip.stake, odds);
       const ticket = placeBet({
+        userId,
         stake: slip.stake,
         odds,
         potentialReturn,
