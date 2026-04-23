@@ -60,6 +60,17 @@ export type Event = {
   /** ISO timestamp. Kickoff time — we'll render with a `formatTime` helper. */
   startsAt: string;
   markets: Market[];
+  /** Phase 4: in-play flag. In a real app this would come from a feed. */
+  isLive?: boolean;
+};
+
+export type HotStats = {
+  /** Total live-odds volatility in the last poll (fake metric for demo). */
+  volatilityPct: number;
+  /** Highest-odds selection right now. */
+  longestShot: { label: string; price: number; eventLabel: string };
+  /** Number of live events currently streaming. */
+  liveCount: number;
 };
 
 // ----------------------------- catalog -------------------------------------
@@ -201,6 +212,7 @@ export const EVENTS: Event[] = [
     markets: [
       mkMarket1x2(1.95, 0 /* no draw in basketball; kept for shape */, 1.85),
     ],
+    isLive: true,
   },
   {
     id: "evt-nba-002",
@@ -219,6 +231,7 @@ export const EVENTS: Event[] = [
     awayTeam: "Sinner",
     startsAt: mins(120),
     markets: [mkMarket1x2(1.75, 0, 2.1)],
+    isLive: true,
   },
   {
     id: "evt-ufc-001",
@@ -237,15 +250,49 @@ export const EVENTS: Event[] = [
     awayTeam: "FaZe",
     startsAt: mins(75),
     markets: [mkMarket1x2(1.9, 0, 1.95)],
+    isLive: true,
+  },
+  {
+    id: "evt-epl-003",
+    sportSlug: "football",
+    leagueSlug: "premier-league",
+    homeTeam: "Tottenham",
+    awayTeam: "Newcastle",
+    startsAt: mins(-15), // kicked off 15 min ago → definitely live
+    markets: [mkMarket1x2(2.6, 3.1, 2.7)],
+    isLive: true,
   },
 ];
 
 // ----------------------------- helpers -------------------------------------
 
-/** Simulated network latency. Different ranges per function make it obvious
- *  which loader is "slow" when you watch the NavLink pending state. */
-export const sleep = (ms: number) =>
-  new Promise<void>((r) => setTimeout(r, ms));
+/**
+ * Simulated network latency.
+ *
+ * Phase 4 enhancement: accepts an optional `AbortSignal`. If the signal
+ * fires BEFORE the delay completes, we reject with an AbortError.
+ *
+ * In production loaders you should forward `request.signal` into every
+ * fetch/DB call so they cancel when the user navigates away mid-load —
+ * otherwise a slow query can keep burning CPU and holding a DB connection
+ * for a request that nobody cares about anymore.
+ */
+export const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error("Aborted"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error("Aborted"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 
 // ----------------------------- async accessors -----------------------------
 // Every loader in this app calls one of these. Keep them small, typed,
@@ -298,4 +345,69 @@ export async function getFeaturedEvents(): Promise<Event[]> {
   return [...EVENTS]
     .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt))
     .slice(0, 4);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: "live" accessors
+// ---------------------------------------------------------------------------
+
+/**
+ * Fast accessor — list of currently-live events. Returns a fresh odds
+ * snapshot each call: prices jitter by ±5% to simulate a live price feed.
+ * The jitter is intentional — watching prices flicker is how you see
+ * polling working.
+ */
+export async function getLiveEvents(signal?: AbortSignal): Promise<Event[]> {
+  await sleep(120, signal);
+  return EVENTS.filter((e) => e.isLive).map((e) => ({
+    ...e,
+    markets: e.markets.map((m) => ({
+      ...m,
+      selections: m.selections.map((s) => ({
+        ...s,
+        price: jitter(s.price),
+      })),
+    })),
+  }));
+}
+
+/**
+ * Deliberately slow. Returned as a PROMISE from the /live loader (not
+ * awaited) so the critical content paints first and this streams in via
+ * `<Await>` + `<Suspense>`.
+ */
+export async function getHotStats(signal?: AbortSignal): Promise<HotStats> {
+  await sleep(1200, signal);
+  const live = EVENTS.filter((e) => e.isLive);
+  let longestShot = {
+    label: "—",
+    price: 0,
+    eventLabel: "—",
+  };
+  for (const e of live) {
+    for (const m of e.markets) {
+      for (const s of m.selections) {
+        if (s.price > longestShot.price) {
+          longestShot = {
+            label: s.label,
+            price: s.price,
+            eventLabel: `${e.homeTeam} vs ${e.awayTeam}`,
+          };
+        }
+      }
+    }
+  }
+  return {
+    volatilityPct: Math.round(Math.random() * 40 + 10), // 10%–50%
+    longestShot,
+    liveCount: live.length,
+  };
+}
+
+function jitter(price: number): number {
+  if (!price) return 0;
+  // ±5%, rounded to 2 decimals. Never let it drop below 1.01 (minimum
+  // realistic decimal odds).
+  const swing = price * 0.05 * (Math.random() * 2 - 1);
+  return Math.max(1.01, +(price + swing).toFixed(2));
 }

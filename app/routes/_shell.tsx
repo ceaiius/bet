@@ -1,4 +1,7 @@
-import { Outlet } from "react-router";
+import {
+  Outlet,
+  type ShouldRevalidateFunctionArgs,
+} from "react-router";
 import type { Route } from "./+types/_shell";
 
 import { Header } from "~/components/Header";
@@ -28,6 +31,33 @@ export async function loader({ request }: Route.LoaderArgs) {
     getBetSlip(request),
   ]);
   return { sports, betSlip };
+}
+
+/**
+ * Phase 4 optimization: don't re-fetch the sports catalog + bet slip when
+ * a child route (like /live) fires `useRevalidator().revalidate()` purely
+ * for polling.
+ *
+ * The rule we encode:
+ *   - Navigation? (pathname changed) → revalidate. Active sport might change.
+ *   - Form submission? (any formMethod) → revalidate. A /bet-slip POST needs
+ *     the slip count in the header to update.
+ *   - Pure revalidator tick? (same pathname, no form) → SKIP. Nothing a timer
+ *     does should force the whole catalog to reload.
+ *
+ * This is the quintessential `shouldRevalidate` decision: trade freshness
+ * for bandwidth. In real apps, audit every shell-level loader and ask
+ * "does this need to re-run after every action?" The answer is usually no.
+ */
+export function shouldRevalidate({
+  currentUrl,
+  nextUrl,
+  formMethod,
+  defaultShouldRevalidate,
+}: ShouldRevalidateFunctionArgs) {
+  if (currentUrl.pathname !== nextUrl.pathname) return defaultShouldRevalidate;
+  if (formMethod) return defaultShouldRevalidate; // action happened → refresh slip
+  return false; // pure revalidator poll, skip
 }
 
 export default function Shell({ loaderData }: Route.ComponentProps) {
